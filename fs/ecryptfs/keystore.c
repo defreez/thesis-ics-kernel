@@ -486,6 +486,23 @@ out:
 	return rc;
 }
 
+int ecryptfs_find_boundary_key(
+	struct ecryptfs_mount_crypt_stat *mount_crypt_stat,
+	uid_t uid, struct ecryptfs_boundary_key **boundary_key)
+{
+	struct ecryptfs_boundary_key *walker = NULL;
+
+	list_for_each_entry(walker, &mount_crypt_stat->boundary_key_list, 
+			    mount_crypt_stat_list) {
+		if (walker->uid == uid) {
+			*boundary_key = walker;
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
 static int
 ecryptfs_find_global_auth_tok_for_sig(
 	struct key **auth_tok_key,
@@ -1664,6 +1681,8 @@ static int
 decrypt_passphrase_encrypted_session_key(struct ecryptfs_auth_tok *auth_tok,
 					 struct ecryptfs_crypt_stat *crypt_stat)
 {
+	struct ecryptfs_boundary_key *boundary_key;
+	u8 decryption_key[16];
 	struct scatterlist dst_sg[2];
 	struct scatterlist src_sg[2];
 	struct mutex *tfm_mutex;
@@ -1672,13 +1691,19 @@ decrypt_passphrase_encrypted_session_key(struct ecryptfs_auth_tok *auth_tok,
 	};
 	int rc = 0;
 
+	ecryptfs_printk(KERN_DEBUG, "uid: %d", (int) crypt_stat->boundary_uid);
+	if (!ecryptfs_find_boundary_key(crypt_stat->mount_crypt_stat, 
+				   crypt_stat->boundary_uid, &boundary_key)) 
+	{
+		ecryptfs_generate_boundary_key(crypt_stat,
+					       auth_tok, &boundary_key);
+	}
+	memcpy(decryption_key, boundary_key->key, crypt_stat->key_size);
+
 	if (unlikely(ecryptfs_verbosity > 0)) {
 		ecryptfs_printk(
-			KERN_DEBUG, "Session key encryption key (size [%d]):\n",
-			auth_tok->token.password.session_key_encryption_key_bytes);
-		ecryptfs_dump_hex(
-			auth_tok->token.password.session_key_encryption_key,
-			auth_tok->token.password.session_key_encryption_key_bytes);
+			KERN_DEBUG, "Session key encryption key:\n")
+		ecryptfs_dump_hex(decryption_key, crypt_stat->key_size);
 	}
 	rc = ecryptfs_get_tfm_and_mutex_for_cipher_name(&desc.tfm, &tfm_mutex,
 							crypt_stat->cipher);
@@ -1712,7 +1737,7 @@ decrypt_passphrase_encrypted_session_key(struct ecryptfs_auth_tok *auth_tok,
 	}
 	mutex_lock(tfm_mutex);
 	rc = crypto_blkcipher_setkey(
-		desc.tfm, auth_tok->token.password.session_key_encryption_key,
+		desc.tfm, decryption_key,
 		crypt_stat->key_size);
 	if (unlikely(rc < 0)) {
 		mutex_unlock(tfm_mutex);
@@ -1909,6 +1934,8 @@ found_matching_auth_tok:
 		rc = decrypt_pki_encrypted_session_key(candidate_auth_tok,
 						       crypt_stat);
 	} else if (candidate_auth_tok->token_type == ECRYPTFS_PASSWORD) {
+	// If Boundary mode, we should lookup by uid and copy that private key
+	// If uid lookup fails, then derive
 		memcpy(&(candidate_auth_tok->token.password),
 		       &(matching_auth_tok->token.password),
 		       sizeof(struct ecryptfs_password));
@@ -2184,6 +2211,7 @@ write_tag_3_packet(char *dest, size_t *remaining_bytes,
 	size_t i;
 	size_t encrypted_session_key_valid = 0;
 	char session_key_encryption_key[ECRYPTFS_MAX_KEY_BYTES];
+	struct ecryptfs_boundary_key *boundary_key = NULL;
 	struct scatterlist dst_sg[2];
 	struct scatterlist src_sg[2];
 	struct mutex *tfm_mutex = NULL;
@@ -2251,9 +2279,18 @@ write_tag_3_packet(char *dest, size_t *remaining_bytes,
 				"session key encryption key of size [%d]\n",
 				auth_tok->token.password.
 				session_key_encryption_key_bytes);
-		memcpy(session_key_encryption_key,
-		       auth_tok->token.password.session_key_encryption_key,
-		       crypt_stat->key_size);
+
+		if (BOUNDARY_MODE) {
+			// Switcheroo FEKEK to implement boundaries
+			ecryptfs_generate_boundary_key(crypt_stat, auth_tok,
+						       &boundary_key);
+			memcpy(session_key_encryption_key, boundary_key->key, 16);
+			ecryptfs_printk(KERN_DEBUG, "key size: %d", crypt_stat->key_size);
+		} else {
+			memcpy(session_key_encryption_key,
+			       auth_tok->token.password.session_key_encryption_key,
+			       crypt_stat->key_size);
+		}
 		ecryptfs_printk(KERN_DEBUG,
 				"Cached session key " "encryption key: \n");
 		if (ecryptfs_verbosity > 0)

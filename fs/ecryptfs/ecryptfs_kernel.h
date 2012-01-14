@@ -85,6 +85,7 @@
 #define ECRYPTFS_DEFAULT_NUM_USERS 4
 #define ECRYPTFS_MAX_NUM_USERS 32768
 #define ECRYPTFS_XATTR_NAME "user.ecryptfs"
+#define BOUNDARY_MODE 1
 
 #define RFC2440_CIPHER_DES3_EDE 0x02
 #define RFC2440_CIPHER_CAST_5 0x03
@@ -287,6 +288,7 @@ struct ecryptfs_crypt_stat {
 	unsigned char cipher[ECRYPTFS_MAX_CIPHER_NAME_SIZE];
 	unsigned char key[ECRYPTFS_MAX_KEY_BYTES];
 	unsigned char root_iv[ECRYPTFS_MAX_IV_BYTES];
+	uid_t boundary_uid;
 	struct list_head keysig_list;
 	struct mutex keysig_list_mutex;
 	struct mutex cs_tfm_mutex;
@@ -339,6 +341,12 @@ struct ecryptfs_global_auth_tok {
 	unsigned char sig[ECRYPTFS_SIG_SIZE_HEX + 1];
 };
 
+struct ecryptfs_boundary_key {
+	struct list_head mount_crypt_stat_list;
+	char key[16];
+	uid_t uid;
+};
+
 /**
  * ecryptfs_key_tfm - Persistent key tfm
  * @key_tfm: crypto API handle to the key
@@ -382,6 +390,7 @@ struct ecryptfs_mount_crypt_stat {
 	u32 flags;
 	struct list_head global_auth_tok_list;
 	struct mutex global_auth_tok_list_mutex;
+	struct list_head boundary_key_list;
 	size_t global_default_cipher_key_size;
 	size_t global_default_fn_cipher_key_bytes;
 	unsigned char global_default_cipher_name[ECRYPTFS_MAX_CIPHER_NAME_SIZE
@@ -768,4 +777,10 @@ ecryptfs_parse_tag_70_packet(char **filename, size_t *filename_size,
 int ecryptfs_derive_iv(char *iv, struct ecryptfs_crypt_stat *crypt_stat,
 		       loff_t offset);
 
+int ecryptfs_find_boundary_key(struct ecryptfs_mount_crypt_stat *mount_crypt_stat,
+				uid_t uid, struct ecryptfs_boundary_key **boundary_key);
+void ecryptfs_generate_boundary_key(struct ecryptfs_crypt_stat *crypt_stat,
+				    struct ecryptfs_auth_tok *auth_tok,
+				    struct ecryptfs_boundary_key **boundary_key);
+				   
 #endif /* #ifndef ECRYPTFS_KERNEL_H */

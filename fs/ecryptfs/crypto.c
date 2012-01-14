@@ -200,6 +200,7 @@ int ecryptfs_derive_iv(char *iv, struct ecryptfs_crypt_stat *crypt_stat,
 	}
 	rc = ecryptfs_calculate_md5(dst, crypt_stat, src,
 				    (crypt_stat->iv_bytes + 16));
+
 	if (rc) {
 		ecryptfs_printk(KERN_WARNING, "Error attempting to compute "
 				"MD5 while generating IV for a page\n");
@@ -837,6 +838,45 @@ out:
 	return rc;
 }
 
+// should be int, returning true false based upon key status of master
+void ecryptfs_generate_boundary_key(struct ecryptfs_crypt_stat *crypt_stat,
+				    struct ecryptfs_auth_tok *auth_tok,
+				    struct ecryptfs_boundary_key **boundary_key)
+{
+	char *tmp;
+	int master_sz;
+	struct ecryptfs_boundary_key *new_key = NULL; 
+	struct ecryptfs_mount_crypt_stat *mount_crypt_stat =
+		crypt_stat->mount_crypt_stat;
+
+
+	if (ecryptfs_find_boundary_key(mount_crypt_stat, 
+				       crypt_stat->boundary_uid, boundary_key)) 
+		goto out;	
+
+	new_key = kmalloc(sizeof(struct ecryptfs_boundary_key), GFP_KERNEL);
+
+	master_sz = auth_tok->token.password.session_key_encryption_key_bytes;
+	tmp = kmalloc(sizeof(uid_t) + master_sz, GFP_KERNEL);
+
+	memcpy(tmp, auth_tok->token.password.session_key_encryption_key, master_sz);
+	memcpy(tmp + master_sz, &crypt_stat->boundary_uid, sizeof(uid_t));
+
+	ecryptfs_calculate_md5(new_key->key, crypt_stat, tmp, 
+				master_sz + sizeof(uid_t));
+	new_key->uid = crypt_stat->boundary_uid;
+
+	list_add(&new_key->mount_crypt_stat_list, 
+		 &mount_crypt_stat->boundary_key_list);
+	*boundary_key = new_key;
+
+	if (unlikely(ecryptfs_verbosity > 0)) {
+		ecryptfs_printk(KERN_DEBUG, "Generated boundary key");
+	}
+out:
+	return;
+}
+
 static void ecryptfs_generate_new_key(struct ecryptfs_crypt_stat *crypt_stat)
 {
 	get_random_bytes(crypt_stat->key, crypt_stat->key_size);
@@ -979,6 +1019,9 @@ int ecryptfs_new_file_context(struct dentry *ecryptfs_dentry)
 		ecryptfs_printk(KERN_ERR, "Error initializing cryptographic "
 				"context for cipher [%s]: rc = [%d]\n",
 				crypt_stat->cipher, rc);
+
+	// Set boundary id for FEKEK generation
+	crypt_stat->boundary_uid = ecryptfs_dentry->d_inode->i_uid;
 out:
 	return rc;
 }
