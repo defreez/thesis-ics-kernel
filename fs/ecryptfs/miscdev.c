@@ -460,6 +460,9 @@ ecryptfs_miscdev_write(struct file *file, const char __user *buf,
 			       "response to requesting operation; rc = [%d]\n",
 			       __func__, rc);
 		break;
+	case ECRYPTFS_MSG_CLEARMASTER_BLACK:
+		printk(KERN_DEBUG "Clear the master key with blacklist");
+		break;
 	case ECRYPTFS_MSG_HELO:
 	case ECRYPTFS_MSG_QUIT:
 		break;

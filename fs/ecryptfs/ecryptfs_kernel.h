@@ -439,6 +439,8 @@ struct ecryptfs_msg_ctx {
 #define ECRYPTFS_MSG_QUIT 101
 #define ECRYPTFS_MSG_REQUEST 102
 #define ECRYPTFS_MSG_RESPONSE 103
+#define ECRYPTFS_MSG_CLEARMASTER_BLACK 104
+#define ECRYPTFS_MSG_CLEARMASTER_WHITE 105
 	u8 type;
 	u32 index;
 	/* Counter converts to a sequence number. Each message sent
